@@ -1,0 +1,26 @@
+# Kontrol/test verileri
+kontrol_dosyaları/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Sanal ortam / ortam değişkenleri
+venv/
+.venv/
+env/
+.env
+
+# Loglar
+*.log
+
+# macOS
+.DS_Store
+
+# Editör
+.idea/
+.vscode/
