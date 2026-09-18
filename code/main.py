@@ -28,7 +28,7 @@ state.kontrol_frame = kontrol_page.build_kontrol_page(state.app)
 state.app.bind_all("<Button-1>", popup_menu.on_app_click)
 
 # Açılışta sürüm kontrolü
-updater.check_for_update()
+updater.baslat()
 
 # Karşılama sayfasını göster
 navigation.show_welcome()

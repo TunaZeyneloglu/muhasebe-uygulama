@@ -12,10 +12,10 @@ import theme
 
 
 def _surum_metni():
-    """version.txt içeriğini rozet için okur; okunamazsa rozet gizlenir."""
+    """version.py'deki sürümü rozet için döndürür; okunamazsa rozet gizlenir."""
     try:
-        import updater
-        return "v" + updater._yerel_surum()
+        import version
+        return "v" + version.APP_VERSION
     except Exception:
         return ""
 

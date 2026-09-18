@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Tag ile code/version.py eşleşmesini kontrol et
+        run: |
+          APP_VERSION="$(tr -d '\r' < code/version.py | sed -nE 's/^APP_VERSION = "([^"]+)"$/\1/p')"
+          if [ -z "$APP_VERSION" ]; then
+            echo "::error::code/version.py içinde 'APP_VERSION = \"X.Y.Z\"' satırı bulunamadı."
+            exit 1
+          fi
+          if [ "$TAG" != "v$APP_VERSION" ]; then
+            echo "::error::Tag ($TAG) ile code/version.py (APP_VERSION=$APP_VERSION, beklenen tag v$APP_VERSION) eşleşmiyor."
+            exit 1
+          fi
+          echo "Sürüm eşleşiyor: $TAG"
+
+      - name: Bağımlılıkları kur
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Exe derle
+        run: pyinstaller --noconfirm --clean FaturaYonetimSistemi.spec
+
+      - name: Exe var mı kontrol et
+        run: |
+          if [ ! -f dist/FaturaYonetimSistemi.exe ]; then
+            echo "::error::dist/FaturaYonetimSistemi.exe oluşmadı."
+            ls -la dist || true
+            exit 1
+          fi
+          ls -la dist/FaturaYonetimSistemi.exe
+
+      - name: GitHub Release oluştur
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" dist/FaturaYonetimSistemi.exe \
+            --title "Fatura Yönetim Sistemi $TAG" \
+            --generate-notes
