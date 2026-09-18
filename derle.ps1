@@ -12,6 +12,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
+# Utility'yi PSModulePath'ten bagimsiz olarak $PSHOME'dan yukle: PATH'teki 'Write-Host' adli dosyalar Write-Host'u golgelemesin, PS7 PSModulePath'i Get-FileHash'i bozmasin.
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -Force
 
 function Invoke-Native {
     # PS 5.1'de native komut hatasi 'Stop'u tetiklemez; $LASTEXITCODE elle kontrol edilir.
