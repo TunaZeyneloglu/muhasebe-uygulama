@@ -39,9 +39,14 @@ Bu dosya, Windows Server'da çalışan Claude Code için yayın (Release) prosed
    ```
    Asset adı birebir `FaturaYonetimSistemi.exe` olmalı; `isDraft` ve `isPrerelease` `false` olmalı.
 
+## macOS asset'i
+
+Mac asset'i (`FaturaYonetimSistemi-macOS.zip`) bu Windows sunucusunda üretilmez; aynı commit'ten bir Mac'te `derle_mac.command` ile derlenip aynı Release'e `gh release upload vX.Y.Z dist/FaturaYonetimSistemi-macOS.zip --clobber` ile eklenir. Release'te bu asset varsa dokunma. Mac kullanıcılarına notlar için `SURUM_YAYINLAMA.md`.
+
 ## Kurallar
 
 - Asset adını asla değiştirme (`FaturaYonetimSistemi.exe`).
+- macOS asset adını da koru (`FaturaYonetimSistemi-macOS.zip`); silme, yeniden adlandırma.
 - Draft veya prerelease kullanma; updater bunları yoksayar.
 - Aynı tag'e ikinci Release oluşturma. Hata varsa exe'yi yeniden yükle:
   ```

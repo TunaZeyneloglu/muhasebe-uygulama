@@ -15,6 +15,7 @@ dist/
 # Sanal ortam / ortam değişkenleri
 venv/
 .venv/
+.venv-mac/
 env/
 .env
 
