@@ -62,6 +62,9 @@ APP="dist/FaturaYonetimSistemi.app"
 ZIP="dist/FaturaYonetimSistemi-macOS.zip"
 [ -d "$APP" ] || hata "$APP oluşmadı."
 
+# python.org Tcl.framework'ünden kopyalanan dosyalar karantina özniteliği taşıyabilir
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 

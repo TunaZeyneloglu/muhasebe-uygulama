@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -157,6 +158,34 @@ def _istek(url, accept):
         "User-Agent": f"FaturaYonetimSistemi/{APP_VERSION}",
         "Accept": accept,
     })
+
+
+def _ssl_baglami():
+    """macOS'ta certifi CA paketiyle SSL bağlamı; diğer platformlarda None.
+
+    python.org Python'unun OpenSSL varsayılan cafile'ı paketlenmiş .app'te yok.
+    certifi yüklenemezse log'a yazılır ve varsayılan bağlama düşülür (None)."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import certifi
+        cafile = certifi.where()
+        if not os.path.isfile(cafile):
+            raise FileNotFoundError(cafile)
+        return ssl.create_default_context(cafile=cafile)
+    except Exception as hata:
+        _log().warning("certifi CA paketi kullanılamadı, varsayılan SSL bağlamı "
+                       "kullanılıyor: %r", hata)
+        return None
+
+
+def _urlopen(istek):
+    """urlopen sarmalayıcısı. Windows'ta context geçirilmez (sistem deposu).
+    Yönlendirmeler (objects.githubusercontent.com) aynı bağlamla doğrulanır."""
+    baglam = _ssl_baglami()
+    if baglam is None:
+        return urllib.request.urlopen(istek, timeout=ZAMAN_ASIMI)
+    return urllib.request.urlopen(istek, timeout=ZAMAN_ASIMI, context=baglam)
 
 
 def _yazilabilir_mi(klasor: Path) -> bool:
@@ -313,8 +342,7 @@ def _temizlik_thread():
 def _release_getir():
     """releases/latest JSON'unu döndürür; release yoksa (404) None."""
     try:
-        with urllib.request.urlopen(_istek(API_URL, "application/vnd.github+json"),
-                                    timeout=ZAMAN_ASIMI) as yanit:
+        with _urlopen(_istek(API_URL, "application/vnd.github+json")) as yanit:
             return json.loads(yanit.read().decode("utf-8"))
     except urllib.error.HTTPError as hata:
         if hata.code == 404:
@@ -328,8 +356,8 @@ def _indir(url: str, hedef: Path, ilerleme=None, toplam=None):
 
     ilerleme verilirse (indirilen, toplam, son) ile çağrılır (indirme thread'inde).
     toplam bilinmiyorsa Content-Length denenir; o da yoksa None kalır."""
-    with urllib.request.urlopen(_istek(url, "application/octet-stream"),
-                                timeout=ZAMAN_ASIMI) as yanit, open(hedef, "wb") as f:
+    with _urlopen(_istek(url, "application/octet-stream")) as yanit, \
+            open(hedef, "wb") as f:
         if not toplam:
             try:
                 toplam = int(yanit.headers.get("Content-Length")) or None
