@@ -1,31 +1,25 @@
 # Sürüm Yayınlama
 
-## Yeni sürüm nasıl yayınlanır
+## Derleme
 
-1. `code/version.py` içindeki sürümü artırın (satır biçimi tam olarak `APP_VERSION = "X.Y.Z"` olmalı).
-2. Değişikliği commit edip push edin.
-3. Aynı sürümle tag oluşturup gönderin:
-   ```
-   git tag vX.Y.Z && git push origin vX.Y.Z
-   ```
-4. GitHub Actions (`.github/workflows/release.yml`) tag ile `code/version.py` uyuşuyor mu kontrol eder, uyuşmuyorsa durur. Uyuşuyorsa `FaturaYonetimSistemi.exe`'yi konsolsuz, tek dosya olarak derler ve `vX.Y.Z` Release'ine ekler.
-5. Açık uygulamalar yeni sürümü arka planda (GitHub Releases `latest`) bulur. Draft ve prerelease sürümler dikkate alınmaz.
+Kök klasördeki `derle.bat` dosyasına çift tıklayın. Sanal ortamı (`.venv`) kurar, derler, exe'nin boyutunu ve SHA256'sını yazdırır. Çıktı: `dist\FaturaYonetimSistemi.exe`
 
-## Yerelde derleme
+## Yayın
 
-```
-pip install -r requirements.txt pyinstaller && pyinstaller FaturaYonetimSistemi.spec
-```
+Yayın normalde sunucudaki Claude Code ile yapılır; adımlar `CLAUDE.md` dosyasındadır.
 
-Çıktı: `dist/FaturaYonetimSistemi.exe`
+### Elle yayın
 
-Windows'ta tek komutla (sanal ortamı `.venv` olarak kurar, derler, exe'nin boyutunu ve SHA256'sını yazdırır; `-Temiz` önce `build`/`dist`'i siler):
+1. `code/version.py` içindeki sürümü artırın (satır biçimi tam olarak `APP_VERSION = "X.Y.Z"` olmalı), commit edip push edin.
+2. `derle.bat` ile derleyin.
+3. GitHub Releases'te `vX.Y.Z` tag'iyle yeni bir Release oluşturun ve `dist\FaturaYonetimSistemi.exe` dosyasını bu adla yükleyin. Draft veya prerelease işaretlemeyin.
 
-```
-powershell -ExecutionPolicy Bypass -File .\derle.ps1
-```
+### Yedek yol: GitHub Actions
+
+Actions -> Release -> Run workflow -> tag'i girin (ör. `v2.9.19`). Tag önceden push edilmiş olmalı ve `code/version.py` ile eşleşmelidir. Tag push'u Actions'ı kendiliğinden tetiklemez.
 
 ## Notlar
 
+- Açık uygulamalar yeni sürümü arka planda (GitHub Releases `latest`) bulur. Draft ve prerelease sürümler dikkate alınmaz.
 - Bu sistemden önceki (konsollu) exe'ler kendini güncelleyemez. Yeni exe kullanıcılara bir kez elle verilmelidir.
 - Exe yazılabilir bir klasörde durmalıdır (ör. Masaüstü, Belgeler; `Program Files` değil). Aksi halde otomatik güncelleme sessizce atlanır.

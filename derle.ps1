@@ -1,5 +1,6 @@
 # Fatura Yonetim Sistemi - Windows derleme betigi
 # Kullanim:
+#   Cift tiklama icin derle.bat kullanin
 #   powershell -ExecutionPolicy Bypass -File .\derle.ps1
 #   powershell -ExecutionPolicy Bypass -File .\derle.ps1 -Temiz   (once build ve dist silinir)
 # Tek dogruluk kaynagi FaturaYonetimSistemi.spec dosyasidir.
