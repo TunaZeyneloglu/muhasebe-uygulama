@@ -8,7 +8,6 @@ from tkinter import filedialog
 import icons
 import state
 import theme
-from logic.common import dosyayi_ac
 from logic.hb_trendyol import hb_ve_trn_karsilastir
 from logic.hizlibilisim import hizlibilisim_karsilastir
 from logic.izibiz import izibiz_karsilastir
@@ -350,7 +349,7 @@ def _kontrol_sonucunu_goster(sonuc, bitti_callback=None):
                       corner_radius=theme.CORNER_BTN, font=theme.FONT_BODY_BOLD(),
                       fg_color=theme.SUCCESS, hover_color=theme.SUCCESS_HOVER,
                       text_color=theme.TEXT_ON_ACCENT,
-                      command=lambda: [popup.destroy(), dosyayi_ac()]).pack(side="left", padx=5)
+                      command=lambda: [popup.destroy(), popup_menu.dosya_yolunu_ac(sonuc_dosyasi)]).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="Kapat", width=theme.BTN_W_SM, height=theme.BTN_H_MD,
                       corner_radius=theme.CORNER_BTN, font=theme.FONT_SMALL(),
                       fg_color="transparent", border_width=theme.BORDER_WIDTH, border_color=theme.BORDER,

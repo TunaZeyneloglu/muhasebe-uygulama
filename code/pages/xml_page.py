@@ -1,12 +1,12 @@
 import customtkinter as ctk
 
 import icons
+import state
 import theme
-from logic.common import dosyayi_ac
 from logic.xml_logo import klasor_sec_ve_isle_logo
 from pages import ui
 from pages.navigation import show_welcome
-from pages.popup_menu import show_hepsiburada_menu, show_hizlibilisim_xml_menu, show_mustahsil_menu, show_trendyol_menu, show_uyumsoft_xml_menu, xml_isini_baslat
+from pages.popup_menu import dosya_yolunu_ac, show_hepsiburada_menu, show_hizlibilisim_xml_menu, show_mustahsil_menu, show_trendyol_menu, show_uyumsoft_xml_menu, xml_isini_baslat
 
 def build_xml_page(app):
     # ================= XML SAYFASI =================
@@ -79,7 +79,7 @@ def build_xml_page(app):
     # Excel aç butonu
     xml_buton_ac = ctk.CTkButton(sonuc_ic, text="Oluşturulan Excel Dosyasını Aç",
                                  image=icons.tablo(theme.ICON_SM, theme.TEXT_ON_ACCENT),
-                                 compound="left", command=dosyayi_ac, state="disabled",
+                                 compound="left", command=lambda: dosya_yolunu_ac(state.SON_XML_DOSYA_YOLU), state="disabled",
                                  width=theme.BTN_W_WIDE, height=theme.BTN_H_WIDE,
                                  corner_radius=theme.CORNER_BTN, font=theme.FONT_BODY_BOLD(),
                                  fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,

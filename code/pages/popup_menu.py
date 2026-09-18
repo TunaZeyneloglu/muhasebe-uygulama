@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import threading
 from tkinter import filedialog
 
@@ -89,6 +92,25 @@ def _ana_threadde_klasor_sec(*args, **kwargs):
 filedialog.askdirectory = _ana_threadde_klasor_sec
 
 
+def dosya_yolunu_ac(dosya_yolu):
+    """Verilen dosyayı sistemin varsayılan uygulamasıyla açar.
+
+    logic.common.dosyayi_ac ile aynı platform davranışı; tek farkı global
+    state.SON_DOSYA_YOLU yerine açıkça verilen yolu açmasıdır. Böylece her
+    düğme kendi işinin dosyasını açar.
+    """
+    if dosya_yolu:
+        try:
+            if sys.platform == "win32":
+                os.startfile(dosya_yolu)
+            elif sys.platform == "darwin":
+                subprocess.call(["open", dosya_yolu])
+            else:
+                subprocess.call(["xdg-open", dosya_yolu])
+        except Exception:
+            pass
+
+
 def xml_isini_baslat(buton, islem_func, label_sonuc, buton_ac):
     """XML aktarma işlemini arka planda çalıştırır; arayüz donmaz."""
     global _calisan_is_var
@@ -102,10 +124,14 @@ def xml_isini_baslat(buton, islem_func, label_sonuc, buton_ac):
 
     guvenli_label = _GuvenliWidget(label_sonuc)
     guvenli_buton_ac = _GuvenliWidget(buton_ac)
+    # Bu işin oluşturduğu dosya (iş bittiği anda yakalanır)
+    olusan_dosya = {}
 
     def bitir():
         global _calisan_is_var
         _calisan_is_var = False
+        if "yol" in olusan_dosya:
+            state.SON_XML_DOSYA_YOLU = olusan_dosya["yol"]
         try:
             if buton.winfo_exists():
                 buton.configure(state="normal", text=eski_metin)
@@ -122,6 +148,11 @@ def xml_isini_baslat(buton, islem_func, label_sonuc, buton_ac):
     def calis():
         try:
             islem_func(guvenli_label, guvenli_buton_ac)
+            # Logic katmanı dosyayı kaydettiğinde açma butonunu etkinleştirip
+            # yolu state.SON_DOSYA_YOLU'na yazar ve hemen döner; yol burada
+            # bu işe bağlanır ki araya giren kontrol işleri onu değiştirmesin.
+            if guvenli_buton_ac.guncellendi:
+                olusan_dosya["yol"] = state.SON_DOSYA_YOLU
         except Exception as hata:
             guvenli_label.configure(text=f"Hata oluştu: {hata}", text_color=theme.ERROR)
         finally:

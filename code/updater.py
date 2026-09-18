@@ -503,6 +503,8 @@ def _not_ozeti(body: str) -> str:
 HAZIR_MESAJI = "Güncelleme için uygulama kısa süreliğine kapanıp yeniden açılacak."
 INDIRME_MESAJI = ("Yeni sürüm indiriliyor. Bu pencereyi kapatırsanız indirme arka planda "
                   "sürer; güncelleme hazır olduğunda uygulama kapanırken kurulur.")
+HATA_MESAJI = ("Güncelleme şu an indirilemedi. Uygulamayı kullanmaya devam edebilirsiniz; "
+               "bir sonraki açılışta tekrar denenecek.")
 
 
 def _popup_yok_et(popup):
@@ -524,7 +526,7 @@ def _guncelleme_penceresi(bilgi, indirme=None):
 
     indirme verilirse (ana thread'e ait durum sözlüğü) pencere "indiriliyor"
     aşamasında açılır; widget'lar bu sözlüğe yazılır ve _indirme_bitti ile
-    aynı pencere "hazır" aşamasına geçirilir ya da sessizce kapatılır.
+    aynı pencere "hazır" ya da "hata" aşamasına geçirilir.
     Kurulum sırasında hata olursa pencere (grab bırakılarak) yok edilir ve
     hata yukarı iletilir."""
     popup = ctk.CTkToplevel(state.app)
@@ -563,10 +565,11 @@ def _guncelleme_penceresi_kur(popup, bilgi, indirme):
                          justify="left", wraplength=350)
     mesaj.pack(padx=16, pady=(14, 6), anchor="w")
     ozet = _not_ozeti(bilgi.get("notlar"))
+    notlar = None
     if ozet:
-        ctk.CTkLabel(mesaj_karti, text=ozet, font=theme.FONT_SMALL(),
-                     text_color=theme.TEXT_MUTED, justify="left",
-                     wraplength=350).pack(padx=16, pady=(0, 14), anchor="w")
+        notlar = ctk.CTkLabel(mesaj_karti, text=ozet, font=theme.FONT_SMALL(),
+                              text_color=theme.TEXT_MUTED, justify="left", wraplength=350)
+        notlar.pack(padx=16, pady=(0, 14), anchor="w")
 
     def simdi():
         try:
@@ -633,7 +636,8 @@ def _guncelleme_penceresi_kur(popup, bilgi, indirme):
         _log().info("Güncelleme penceresi gösterildi (v%s)", bilgi["surum"])
         return
     indirme.update(asama="indiriliyor", popup=popup, baslik=baslik_etiketi, ikon=ikon_etiketi,
-                   mesaj=mesaj, cubuk=cubuk, yuzde=yuzde, simdi_btn=simdi_btn)
+                   mesaj=mesaj, notlar=notlar, cubuk=cubuk, yuzde=yuzde, simdi_btn=simdi_btn,
+                   sonra_btn=sonra_btn, ilerleme_satiri=ilerleme_satiri, btn_frame=btn_frame)
     _log().info("Güncelleme penceresi gösterildi (indiriliyor, v%s)", bilgi["surum"])
 
 
@@ -654,10 +658,11 @@ def _baslik_parcalari(head, baslik):
     return ikon, etiket
 
 
-def _baslik_ikonu(indirme, glif):
-    """Başlık ikonunu aşamaya göre değiştirir (ikon bulunamadıysa dokunmaz)."""
+def _baslik_ikonu(indirme, glif, renk):
+    """Başlık ikonunu ve ikon kutusu zeminini aşamaya göre değiştirir
+    (ikon bulunamadıysa dokunmaz)."""
     if indirme.get("ikon") is not None:
-        indirme["ikon"].configure(image=glif(theme.ICON_LG, theme.ACCENT))
+        indirme["ikon"].configure(image=glif(theme.ICON_LG, renk), fg_color=theme.TINT(renk))
 
 
 def _pencere_acik_mi(indirme) -> bool:
@@ -710,9 +715,9 @@ def _ilerleme_goster(indirme, indirilen, toplam):
 
 
 def _indirme_bitti(bilgi, indirme, basarili, deneme=0):
-    """Ana thread: indirme sonucu. Başarılıysa açık pencereyi hazır aşamasına geçirir,
-    başarısızsa sessizce kapatır (hata yalnızca log'a yazılır); pencere kapatılmışsa
-    kapanışta kurulumu kurar, hiç gösterilmediyse hazır pencereyi dener."""
+    """Ana thread: indirme sonucu. Açık pencereyi başarılıysa hazır, başarısızsa hata
+    aşamasına geçirir; pencere kapatılmışsa kapanışta kurulumu kurar, hiç gösterilmediyse
+    hazır pencereyi dener. Pencere açık değilken hata yalnızca log'a yazılır."""
     try:
         if indirme.get("durum") == "bekliyor":
             # Pencere henüz kuruluyor (CTkToplevel kurulumda update() çağırabilir); sonra tekrar
@@ -726,10 +731,12 @@ def _indirme_bitti(bilgi, indirme, basarili, deneme=0):
             if basarili:
                 _hazir_asamasina_gec(bilgi, indirme)
             else:
-                indirme["durum"] = "kapandi"
-                _popup_yok_et(indirme["popup"])
-                _log().info("İndirme başarısız, güncelleme penceresi kapatıldı (v%s)",
-                            bilgi["surum"])
+                try:
+                    _hata_asamasina_gec(bilgi, indirme)
+                except Exception:
+                    indirme["durum"] = "kapandi"  # Hata ekranı kurulamadı: grab'ı bırakıp kapat
+                    _popup_yok_et(indirme["popup"])
+                    raise
             return
         if indirme.get("durum") == "sonra":
             if basarili:
@@ -745,10 +752,10 @@ def _indirme_bitti(bilgi, indirme, basarili, deneme=0):
         _log().exception("İndirme sonucu işlenemedi")
 
 
-def _boyutu_yenile(popup):
+def _boyutu_yenile(popup, en_az=300):
     """Aşama değişince yüksekliği içeriğe göre yeniler, konumu korur."""
     popup.update_idletasks()
-    height = max(300, popup.winfo_reqheight())
+    height = max(en_az, popup.winfo_reqheight())
     popup.geometry(f"440x{height}+{popup.winfo_x()}+{popup.winfo_y()}")
 
 
@@ -758,18 +765,52 @@ def _hazir_asamasina_gec(bilgi, indirme):
     popup, cubuk = indirme["popup"], indirme["cubuk"]
     popup.title("Güncelleme Hazır")
     indirme["baslik"].configure(text="Güncelleme Hazır")
-    _baslik_ikonu(indirme, icons.onay)
+    _baslik_ikonu(indirme, icons.onay, theme.ACCENT)
     indirme["mesaj"].configure(text=HAZIR_MESAJI)
     if indirme.get("belirsiz"):
         cubuk.stop()
         cubuk.configure(mode="determinate")
     cubuk.set(1)
-    indirme["yuzde"].configure(text="%100")
+    # Sabit genişlik (150) yalnızca indirme metni için; "%100" kadar daralınca çubuk satırı doldurur
+    indirme["yuzde"].configure(text="%100", width=0)
     indirme["simdi_btn"].configure(state="normal", fg_color=theme.ACCENT,
                                    hover_color=theme.ACCENT_HOVER,
                                    text_color=theme.TEXT_ON_ACCENT)
     _boyutu_yenile(popup)
     _log().info("Güncelleme penceresi gösterildi (v%s)", bilgi["surum"])
+
+
+def _hata_asamasina_gec(bilgi, indirme):
+    """Aynı pencereyi 'Güncelleme İndirilemedi' aşamasına geçirir. Teknik detay
+    gösterilmez (log'da); 'Tamam'/X pencereyi kapatır, kurulum ertelenmez."""
+    indirme["asama"] = "hata"
+    popup, cubuk = indirme["popup"], indirme["cubuk"]
+
+    def kapat():
+        indirme["durum"] = "kapandi"
+        _popup_yok_et(popup)
+
+    popup.title("Güncelleme İndirilemedi")
+    indirme["baslik"].configure(text="Güncelleme İndirilemedi")
+    _baslik_ikonu(indirme, icons.uyari, theme.WARNING)
+    indirme["mesaj"].configure(text=HATA_MESAJI)
+    if indirme.get("notlar") is not None:
+        indirme["notlar"].pack_forget()
+    indirme["mesaj"].pack_configure(pady=14)
+    if indirme.get("belirsiz"):
+        cubuk.stop()
+    indirme["ilerleme_satiri"].pack_forget()
+    indirme["simdi_btn"].pack_forget()
+    indirme["sonra_btn"].pack_forget()
+    ctk.CTkButton(indirme["btn_frame"], text="Tamam", width=theme.BTN_W_SM,
+                  height=theme.BTN_H_MD, corner_radius=theme.CORNER_BTN, font=theme.FONT_SMALL(),
+                  fg_color="transparent", border_width=theme.BORDER_WIDTH,
+                  border_color=theme.BORDER, hover_color=theme.BG_HOVER,
+                  text_color=theme.TEXT_SECONDARY, command=kapat).pack(side="left", padx=5)
+    popup.protocol("WM_DELETE_WINDOW", kapat)
+    _boyutu_yenile(popup, en_az=0)  # Hata aşamasında yükseklik içerik kadar
+    _log().info("İndirme başarısız, güncelleme penceresi hata aşamasında (v%s)",
+                bilgi["surum"])
 
 # ----------------- Kurulum -----------------
 
