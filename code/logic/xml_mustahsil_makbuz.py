@@ -86,9 +86,9 @@ def xml_mustahsil_makbuz_oku_ve_yaz(klasor, label_sonuc, buton_ac, fatura_tipi):
         dosya_yolu = os.path.join(MASAUSTU, f"{fatura_tipi}.xlsx")
         kaydet_excel(veriler, dosya_yolu)
         if basarisiz_dosyalar:
-            label_sonuc.configure(text=f"⚠️ {fatura_tipi}.xlsx kaydedildi, ancak {len(basarisiz_dosyalar)} dosya işlenemedi: {', '.join(basarisiz_dosyalar[:3])}{' ...' if len(basarisiz_dosyalar) > 3 else ''}", text_color=theme.WARNING)
+            label_sonuc.configure(text=f"{fatura_tipi}.xlsx kaydedildi, ancak {len(basarisiz_dosyalar)} dosya işlenemedi: {', '.join(basarisiz_dosyalar[:3])}{' ...' if len(basarisiz_dosyalar) > 3 else ''}", text_color=theme.WARNING)
         else:
-            label_sonuc.configure(text=f"✅ {fatura_tipi}.xlsx masaüstüne kaydedildi.", text_color=theme.SUCCESS)
+            label_sonuc.configure(text=f"{fatura_tipi}.xlsx masaüstüne kaydedildi.", text_color=theme.SUCCESS)
         buton_ac.configure(state="normal")
         state.SON_DOSYA_YOLU = dosya_yolu
     elif basarisiz_dosyalar:

@@ -52,6 +52,48 @@ def _temizle_fatura_no(fatura_no):
         return ""
     return str(fatura_no).strip().replace("'", "").upper()
 
+def _satir_bulucu_olustur(df, anahtar_sutun='Fatura_No_Temiz'):
+    """Anahtar sütununa göre O(1) çalışan bir satır arayıcı üretir.
+    
+    Dönen fonksiyon, df[df[anahtar_sutun] == anahtar].iloc[0] ile birebir
+    aynı satırı döndürür: yinelenen anahtarlarda ilk satır kazanır.
+    """
+    indeks = {}
+    for konum, anahtar in enumerate(df[anahtar_sutun]):
+        # setdefault: sonraki aynı anahtar ilkinin üzerine yazmaz
+        indeks.setdefault(anahtar, konum)
+    
+    def satir_bul(anahtar):
+        konum = indeks.get(anahtar)
+        if konum is None:
+            # İndekste yer almayan anahtar (ör. NaN) -> eski tarama davranışı
+            return df[df[anahtar_sutun] == anahtar].iloc[0]
+        return df.iloc[konum]
+    
+    return satir_bul
+
+def _fazla_girisler_olustur(satir_bul, fatura_nolar, tutar_sutun='Tutar_TL', kdv_sutun='KDV_TL'):
+    """Zirve'de olup portalda olmayan faturalar için 'Fazla Girişler' satırlarını üretir.
+    
+    Bu satır yapısı kontrol akışlarında birebir aynıdır; sadece tutar/KDV
+    sütun adları akışa göre değişir.
+    """
+    fazla_girisler = []
+    for fatura_no in fatura_nolar:
+        if not fatura_no:
+            continue
+        zirve_row = satir_bul(fatura_no)
+        fazla_girisler.append({
+            'Fatura No': fatura_no,
+            'Cari Unvanı': zirve_row.get('Cari Unvanı', ''),
+            'Tutar TL': round(zirve_row[tutar_sutun], 2),
+            'KDV TL': round(zirve_row[kdv_sutun], 2),
+            'Tarih': zirve_row.get('Tarih', ''),
+            'E.Kod': zirve_row.get('E.Kod', ''),
+            'İşlem Türü': zirve_row.get('İşlem Türü', '')
+        })
+    return fazla_girisler
+
 def _excel_dosyalari_oku(zirve_path, portal_paths):
     """Zirve ve portal Excel dosyalarını oku ve birleştir"""
     df_zirve = pd.read_excel(zirve_path)
@@ -104,12 +146,12 @@ def _kontrol_sonuc_excel_yaz(sonuc_dosyasi, tutar_farklari, eksik_girisler, fazl
 def _kontrol_ozet_mesaj_olustur(portal_paths, df_portal, df_zirve, tutar_farklari, eksik_girisler, fazla_girisler):
     """Kontrol sonucu özet mesajı oluştur"""
     portal_dosya_sayisi = len(portal_paths) if isinstance(portal_paths, list) else 1
-    mesaj = f"✅ Kontrol tamamlandı!\n\n"
-    mesaj += f"📁 İşlenen Portal Dosyası: {portal_dosya_sayisi}\n"
-    mesaj += f"📄 Toplam Portal Fatura: {len(df_portal)}\n"
-    mesaj += f"📄 Toplam Zirve Fatura: {len(df_zirve)}\n\n"
-    mesaj += f"📊 Tutar Farkları: {len(tutar_farklari)}\n"
-    mesaj += f"⚠️ Eksik Girişler: {len(eksik_girisler)}\n"
-    mesaj += f"❌ Fazla Girişler: {len(fazla_girisler)}\n\n"
+    mesaj = f"Kontrol tamamlandı!\n\n"
+    mesaj += f"İşlenen Portal Dosyası: {portal_dosya_sayisi}\n"
+    mesaj += f"Toplam Portal Fatura: {len(df_portal)}\n"
+    mesaj += f"Toplam Zirve Fatura: {len(df_zirve)}\n\n"
+    mesaj += f"Tutar Farkları: {len(tutar_farklari)}\n"
+    mesaj += f"Eksik Girişler: {len(eksik_girisler)}\n"
+    mesaj += f"Fazla Girişler: {len(fazla_girisler)}\n\n"
     mesaj += f"Sonuç dosyası masaüstüne kaydedildi."
     return mesaj

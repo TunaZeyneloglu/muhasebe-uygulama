@@ -3,7 +3,7 @@ import pandas as pd
 
 from constants import MASAUSTU
 import state
-from logic.common import _kontrol_ozet_mesaj_olustur, _kontrol_sonuc_excel_yaz, _temizle_fatura_no
+from logic.common import _fazla_girisler_olustur, _kontrol_ozet_mesaj_olustur, _kontrol_sonuc_excel_yaz, _satir_bulucu_olustur, _temizle_fatura_no
 
 # ----------------- Portal Tipi Tespit Fonksiyonu -----------------
 
@@ -75,13 +75,17 @@ def hb_ve_trn_karsilastir(zirve_path, portal_paths):
         zirve_faturalar = set(df_zirve['Fatura_No_Temiz']) - {''}
         portal_faturalar = set(df_portal['Fatura_No_Temiz']) - {''}
         
+        # Fatura no -> satır indeksleri (O(1) arama)
+        zirve_satir_bul = _satir_bulucu_olustur(df_zirve)
+        portal_satir_bul = _satir_bulucu_olustur(df_portal)
+        
         # 1. TUTAR FARKLARI
         tutar_farklari = []
         for fatura_no in zirve_faturalar.intersection(portal_faturalar):
             if not fatura_no:
                 continue
-            zirve_row = df_zirve[df_zirve['Fatura_No_Temiz'] == fatura_no].iloc[0]
-            portal_row = df_portal[df_portal['Fatura_No_Temiz'] == fatura_no].iloc[0]
+            zirve_row = zirve_satir_bul(fatura_no)
+            portal_row = portal_satir_bul(fatura_no)
             
             tutar_farki = abs(zirve_row['Tutar_TL'] - portal_row['Portal_Tutar'])
             kdv_farki = abs(zirve_row['KDV_TL'] - portal_row['Portal_KDV'])
@@ -108,7 +112,7 @@ def hb_ve_trn_karsilastir(zirve_path, portal_paths):
         for fatura_no in (portal_faturalar - zirve_faturalar):
             if not fatura_no:
                 continue
-            portal_row = df_portal[df_portal['Fatura_No_Temiz'] == fatura_no].iloc[0]
+            portal_row = portal_satir_bul(fatura_no)
             eksik_girisler.append({
                 'Fatura No': fatura_no,
                 'Portal Kaynak': portal_row.get('Portal_Kaynak', ''),
@@ -124,20 +128,8 @@ def hb_ve_trn_karsilastir(zirve_path, portal_paths):
             })
         
         # 3. FAZLA GİRİŞLER
-        fazla_girisler = []
-        for fatura_no in (zirve_faturalar - portal_faturalar):
-            if not fatura_no:
-                continue
-            zirve_row = df_zirve[df_zirve['Fatura_No_Temiz'] == fatura_no].iloc[0]
-            fazla_girisler.append({
-                'Fatura No': fatura_no,
-                'Cari Unvanı': zirve_row.get('Cari Unvanı', ''),
-                'Tutar TL': round(zirve_row['Tutar_TL'], 2),
-                'KDV TL': round(zirve_row['KDV_TL'], 2),
-                'Tarih': zirve_row.get('Tarih', ''),
-                'E.Kod': zirve_row.get('E.Kod', ''),
-                'İşlem Türü': zirve_row.get('İşlem Türü', '')
-            })
+        fazla_girisler = _fazla_girisler_olustur(
+            zirve_satir_bul, zirve_faturalar - portal_faturalar)
         
         # Excel dosyası oluştur
         sonuc_dosyasi = os.path.join(MASAUSTU, "HB_TRN_Kontrol_Sonuc.xlsx")
@@ -150,7 +142,7 @@ def hb_ve_trn_karsilastir(zirve_path, portal_paths):
         
     except Exception as e:
         import traceback
-        return (None, f"❌ Hata oluştu:\n{str(e)}\n\n{traceback.format_exc()}")
+        return (None, f"Hata oluştu:\n{str(e)}\n\n{traceback.format_exc()}")
 
 def _hepsiburada_normalize_portal(df):
     """Hepsiburada portal dosyasını normalize et.

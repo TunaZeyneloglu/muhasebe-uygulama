@@ -16,7 +16,7 @@ ctk.set_default_color_theme("blue")
 
 state.app = ctk.CTk()
 state.app.title("Fatura Yönetim Sistemi")
-state.app.geometry("650x610")
+state.app.geometry("1020x770")
 state.app.resizable(False, False)
 state.app.configure(fg_color=theme.BG_ROOT)
 

@@ -9,6 +9,9 @@ __pycache__/
 build/
 dist/
 
+# Derlenmiş çalıştırılabilir dosyalar
+*.exe
+
 # Sanal ortam / ortam değişkenleri
 venv/
 .venv/

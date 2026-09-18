@@ -11,6 +11,10 @@ from logic.common import cari_adi_al, kaydet_excel
 
 # ----------------- Uyumsoft XML -----------------
 
+# Yardımcı fonksiyon: güvenli float dönüşümü
+def _to_float(x):
+    return float(str(x).replace(",", ".")) if x is not None else 0.0
+
 def xml_uyumsoft_oku_ve_yaz(klasor, label_sonuc, buton_ac, fatura_tipi):
     veriler = []
     basarisiz_dosyalar = []
@@ -35,10 +39,6 @@ def xml_uyumsoft_oku_ve_yaz(klasor, label_sonuc, buton_ac, fatura_tipi):
             supplier_party = root.find(".//cac:AccountingSupplierParty/cac:Party", namespaces=ns)
             carikodu = supplier_party.findtext("cac:PartyIdentification/cbc:ID", namespaces=ns)
             cariadi = cari_adi_al(supplier_party, ns)
-
-            # Yardımcı fonksiyon: güvenli float dönüşümü
-            def _to_float(x):
-                return float(str(x).replace(",", ".")) if x is not None else 0.0
 
             # Belge seviyesi AllowanceCharge kontrolü
             document_level_discount = 0.0
@@ -141,12 +141,12 @@ def xml_uyumsoft_oku_ve_yaz(klasor, label_sonuc, buton_ac, fatura_tipi):
         kaydet_excel(veriler, dosya_yolu)
         if basarisiz_dosyalar:
             label_sonuc.configure(
-                text=f"⚠️ {fatura_tipi}.xlsx kaydedildi, ancak {len(basarisiz_dosyalar)} dosya işlenemedi: {', '.join(basarisiz_dosyalar[:3])}{' ...' if len(basarisiz_dosyalar) > 3 else ''}",
+                text=f"{fatura_tipi}.xlsx kaydedildi, ancak {len(basarisiz_dosyalar)} dosya işlenemedi: {', '.join(basarisiz_dosyalar[:3])}{' ...' if len(basarisiz_dosyalar) > 3 else ''}",
                 text_color=theme.WARNING
             )
         else:
             label_sonuc.configure(
-                text=f"✅ {fatura_tipi}.xlsx masaüstüne kaydedildi.",
+                text=f"{fatura_tipi}.xlsx masaüstüne kaydedildi.",
                 text_color=theme.SUCCESS
             )
         buton_ac.configure(state="normal")

@@ -79,9 +79,9 @@ def xml_trendyol_satis_oku_ve_yaz(klasor, label_sonuc, buton_ac):
         dosya_yolu = os.path.join(MASAUSTU, "trendyol_satis.xlsx")
         kaydet_excel(veriler, dosya_yolu)
         if basarisiz_dosyalar:
-            label_sonuc.configure(text=f"⚠️ trendyol_satis.xlsx kaydedildi, ancak {len(basarisiz_dosyalar)} dosya işlenemedi: {', '.join(basarisiz_dosyalar[:3])}{' ...' if len(basarisiz_dosyalar) > 3 else ''}", text_color=theme.WARNING)
+            label_sonuc.configure(text=f"trendyol_satis.xlsx kaydedildi, ancak {len(basarisiz_dosyalar)} dosya işlenemedi: {', '.join(basarisiz_dosyalar[:3])}{' ...' if len(basarisiz_dosyalar) > 3 else ''}", text_color=theme.WARNING)
         else:
-            label_sonuc.configure(text="✅ trendyol_satis.xlsx masaüstüne kaydedildi.", text_color=theme.SUCCESS)
+            label_sonuc.configure(text="trendyol_satis.xlsx masaüstüne kaydedildi.", text_color=theme.SUCCESS)
         buton_ac.configure(state="normal")
         state.SON_DOSYA_YOLU = dosya_yolu
     elif basarisiz_dosyalar:
@@ -91,7 +91,7 @@ def xml_trendyol_satis_oku_ve_yaz(klasor, label_sonuc, buton_ac):
 
 def klasor_sec_trendyol_alis(label_sonuc, buton_ac):
     # Henüz Trendyol Alış faturası desteği yok
-    label_sonuc.configure(text="⚠️ Trendyol Alış faturası henüz desteklenmiyor.", text_color=theme.WARNING)
+    label_sonuc.configure(text="Trendyol Alış faturası henüz desteklenmiyor.", text_color=theme.WARNING)
 
 def klasor_sec_trendyol_satis(label_sonuc, buton_ac):
     secilen_klasor = filedialog.askdirectory(title="Trendyol Satış Faturası klasörünü seçin")
