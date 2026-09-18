@@ -32,11 +32,12 @@ REPO = "TunaZeyneloglu/muhasebe-uygulama"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 EXE_ADI = "FaturaYonetimSistemi.exe"  # release asset adı, birebir
 ZAMAN_ASIMI = 10          # saniye, ağ işlemleri için
-ILK_KONTROL_GECIKMESI = 4000  # ms, açılıştan sonra ilk kontrol
+ILK_KONTROL_GECIKMESI = 500   # ms, açılıştan sonra ilk kontrol
 POPUP_TEKRAR_ARALIGI = 3000   # ms, başka modal açıkken pop-up'ı tekrar deneme
 TEMIZLIK_DENEME = 5       # eski .old / .part silme deneme sayısı
 TEMIZLIK_ARALIGI = 2      # saniye, silme denemeleri arası
 PARCA_BOYUTU = 64 * 1024  # indirme okuma parçası
+ILERLEME_ARALIGI = 0.1    # saniye, ilerleme güncellemeleri arası en az süre (~10/sn)
 
 # Windows süreç oluşturma bayrakları (macOS'ta subprocess'te tanımlı değiller)
 DETACHED_PROCESS = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
@@ -216,12 +217,28 @@ def _release_getir():
         raise
 
 
-def _indir(url: str, hedef: Path):
-    """URL'yi hedef dosyaya parça parça indirir."""
+def _indir(url: str, hedef: Path, ilerleme=None, toplam=None):
+    """URL'yi hedef dosyaya parça parça indirir.
+
+    ilerleme verilirse (indirilen, toplam, son) ile çağrılır (indirme thread'inde).
+    toplam bilinmiyorsa Content-Length denenir; o da yoksa None kalır."""
     with urllib.request.urlopen(_istek(url, "application/octet-stream"),
                                 timeout=ZAMAN_ASIMI) as yanit, open(hedef, "wb") as f:
+        if not toplam:
+            try:
+                toplam = int(yanit.headers.get("Content-Length")) or None
+            except Exception:
+                toplam = None
+        indirilen = 0
+        if ilerleme:
+            ilerleme(indirilen, toplam, False)
         for parca in iter(lambda: yanit.read(PARCA_BOYUTU), b""):
             f.write(parca)
+            indirilen += len(parca)
+            if ilerleme:
+                ilerleme(indirilen, toplam, False)
+        if ilerleme:
+            ilerleme(indirilen, toplam, True)
 
 
 def _kontrol_thread():
@@ -257,27 +274,51 @@ def _kontrol_thread():
             return
 
         yeni = exe.parent / f"{exe.stem}.{surum}.new"
+        body = release.get("body") if isinstance(release.get("body"), str) else ""
+        bilgi = {"surum": surum, "dosya": yeni, "notlar": body}
+        from pages import popup_menu
         if yeni.exists() and _dogrula(yeni, asset):
             _log().info("Geçerli %s zaten mevcut, yeniden indirilmedi", yeni.name)
         else:
             _sil(yeni)
             parca = exe.parent / f"{exe.stem}.{surum}.part"
             _log().info("İndiriliyor: %s -> %s", asset["browser_download_url"], parca.name)
-            try:
-                _indir(asset["browser_download_url"], parca)
-            except Exception:
-                _sil(parca)
-                raise
-            if not _dogrula(parca, asset):
-                _sil(parca)
-                _log().warning("İndirilen dosya doğrulanamadı, silindi")
-                return
-            os.replace(parca, yeni)
-            _log().info("İndirildi ve doğrulandı: %s", yeni.name)
+            # "İndiriliyor" penceresi ana thread'de açılmaya çalışılır; indirme beklemez.
+            # pencere sözlüğü yalnızca ana thread'de okunur/değiştirilir.
+            pencere = {"durum": "bekliyor"}
+            popup_menu.ana_threadde_calistir(
+                state.app, lambda: _indirme_penceresi_ac(bilgi, pencere))
+            boyut = asset.get("size")
+            son_gonderim = [0.0]
 
-        body = release.get("body") if isinstance(release.get("body"), str) else ""
-        bilgi = {"surum": surum, "dosya": yeni, "notlar": body}
-        from pages import popup_menu
+            def ilerleme(indirilen, toplam, son):
+                simdi = time.monotonic()
+                if not son and simdi - son_gonderim[0] < ILERLEME_ARALIGI:
+                    return
+                son_gonderim[0] = simdi
+                popup_menu.ana_threadde_calistir(
+                    state.app, lambda: _ilerleme_goster(pencere, indirilen, toplam))
+
+            basarili = False
+            try:
+                try:
+                    _indir(asset["browser_download_url"], parca, ilerleme,
+                           boyut if isinstance(boyut, int) and boyut > 0 else None)
+                except Exception:
+                    _sil(parca)
+                    raise
+                if not _dogrula(parca, asset):
+                    _sil(parca)
+                    _log().warning("İndirilen dosya doğrulanamadı, silindi")
+                    return
+                os.replace(parca, yeni)
+                _log().info("İndirildi ve doğrulandı: %s", yeni.name)
+                basarili = True
+            finally:
+                popup_menu.ana_threadde_calistir(
+                    state.app, lambda: _indirme_bitti(bilgi, pencere, basarili))
+            return  # Sonraki adım (hazır pencere / erteleme) _indirme_bitti'de
+
         popup_menu.ana_threadde_calistir(state.app, lambda: _popup_goster_dene(bilgi))
     except Exception:
         _log().exception("Güncelleme kontrolü başarısız")
@@ -309,29 +350,42 @@ def _not_ozeti(body: str) -> str:
     return ozet + ("…" if kirpildi else "")
 
 
-def _guncelleme_penceresi(bilgi):
-    """Doğrulanmış güncelleme dosyası hazırken gösterilen modal pencere."""
+HAZIR_MESAJI = "Güncelleme için uygulama kısa süreliğine kapanıp yeniden açılacak."
+INDIRME_MESAJI = ("Yeni sürüm indiriliyor. Bu pencereyi kapatırsanız indirme arka planda "
+                  "sürer ve güncelleme uygulama kapanırken kurulur.")
+HATA_MESAJI = "Güncelleme indirilemedi. Uygulama bir sonraki açılışta tekrar deneyecek."
+
+
+def _guncelleme_penceresi(bilgi, indirme=None):
+    """Doğrulanmış güncelleme dosyası hazırken gösterilen modal pencere.
+
+    indirme verilirse (ana thread'e ait durum sözlüğü) pencere "indiriliyor"
+    aşamasında açılır; widget'lar bu sözlüğe yazılır ve _indirme_bitti ile
+    aynı pencere "hazır" ya da "hata" aşamasına geçirilir."""
     from pages.kontrol_popups import _popup_basligi
 
+    baslik = "Güncelleme İndiriliyor" if indirme is not None else "Güncelleme Hazır"
     popup = ctk.CTkToplevel(state.app)
-    popup.title("Güncelleme Hazır")
+    popup.title(baslik)
     popup.geometry("440x300")
     popup.resizable(False, False)
     popup.attributes("-topmost", True)
     popup.grab_set()  # Modal yap
     popup.configure(fg_color=theme.BG_ROOT)
 
-    _popup_basligi(popup, "Güncelleme Hazır",
-                   f"Yeni sürüm v{bilgi['surum']} (mevcut v{APP_VERSION})",
-                   theme.ACCENT, icons.onay)
+    head = _popup_basligi(popup, baslik,
+                          f"Yeni sürüm v{bilgi['surum']} (mevcut v{APP_VERSION})",
+                          theme.ACCENT, icons.chevron_asagi if indirme is not None else icons.onay)
+    ikon_etiketi, baslik_etiketi = _baslik_parcalari(head, baslik)
 
     mesaj_karti = ctk.CTkFrame(popup, fg_color=theme.BG_SURFACE, corner_radius=theme.CORNER_POPUP,
                                border_width=theme.BORDER_WIDTH, border_color=theme.BORDER)
     mesaj_karti.pack(fill="both", expand=True, padx=26, pady=(0, 18))
-    ctk.CTkLabel(mesaj_karti,
-                 text="Güncelleme için uygulama kısa süreliğine kapanıp yeniden açılacak.",
-                 font=theme.FONT_MESSAGE(), text_color=theme.TEXT_SECONDARY,
-                 justify="left", wraplength=350).pack(padx=16, pady=(14, 6), anchor="w")
+    mesaj = ctk.CTkLabel(mesaj_karti,
+                         text=INDIRME_MESAJI if indirme is not None else HAZIR_MESAJI,
+                         font=theme.FONT_MESSAGE(), text_color=theme.TEXT_SECONDARY,
+                         justify="left", wraplength=350)
+    mesaj.pack(padx=16, pady=(14, 6), anchor="w")
     ozet = _not_ozeti(bilgi.get("notlar"))
     if ozet:
         ctk.CTkLabel(mesaj_karti, text=ozet, font=theme.FONT_SMALL(),
@@ -350,19 +404,48 @@ def _guncelleme_penceresi(bilgi):
             popup.destroy()
         except Exception:
             pass
+        if indirme is not None and indirme.get("asama") == "indiriliyor":
+            # İndirme arka planda sürer; sonucu _indirme_bitti ele alır
+            indirme["durum"] = "sonra"
+            _log().info("Güncelleme penceresi indirme sırasında kapatıldı, "
+                        "indirme arka planda sürüyor (v%s)", bilgi["surum"])
+            return
+        if indirme is not None and indirme.get("asama") == "hata":
+            indirme["durum"] = "kapandi"  # "Kapat": yalnızca pencereyi kapatır
+            return
         _sonraya_birak(bilgi)
+
+    if indirme is not None:
+        ilerleme_satiri = ctk.CTkFrame(popup, fg_color="transparent")
+        ilerleme_satiri.pack(fill="x", padx=26, pady=(0, 16))
+        cubuk = ctk.CTkProgressBar(ilerleme_satiri, height=8, corner_radius=4,
+                                   fg_color=theme.BG_ELEVATED, progress_color=theme.ACCENT,
+                                   mode="determinate")
+        cubuk.set(0)
+        cubuk.pack(side="left", fill="x", expand=True)
+        yuzde = ctk.CTkLabel(ilerleme_satiri, text="%0", font=theme.FONT_SMALL(),
+                             text_color=theme.TEXT_SECONDARY, width=150, anchor="e")
+        yuzde.pack(side="left", padx=(12, 0))
 
     btn_frame = ctk.CTkFrame(popup, fg_color="transparent")
     btn_frame.pack(pady=(0, 20))
-    ctk.CTkButton(btn_frame, text="Şimdi Güncelle", width=theme.BTN_W_MD, height=theme.BTN_H_MD,
-                  corner_radius=theme.CORNER_BTN, font=theme.FONT_BODY_BOLD(),
-                  fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
-                  text_color=theme.TEXT_ON_ACCENT, command=simdi).pack(side="left", padx=5)
-    ctk.CTkButton(btn_frame, text="Sonra", width=theme.BTN_W_SM, height=theme.BTN_H_MD,
-                  corner_radius=theme.CORNER_BTN, font=theme.FONT_SMALL(),
-                  fg_color="transparent", border_width=theme.BORDER_WIDTH, border_color=theme.BORDER,
-                  hover_color=theme.BG_HOVER, text_color=theme.TEXT_SECONDARY,
-                  command=sonra).pack(side="left", padx=5)
+    simdi_btn = ctk.CTkButton(btn_frame, text="Şimdi Güncelle", width=theme.BTN_W_MD,
+                              height=theme.BTN_H_MD,
+                              corner_radius=theme.CORNER_BTN, font=theme.FONT_BODY_BOLD(),
+                              fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
+                              text_color=theme.TEXT_ON_ACCENT, command=simdi)
+    simdi_btn.pack(side="left", padx=5)
+    sonra_btn = ctk.CTkButton(btn_frame, text="Sonra", width=theme.BTN_W_SM, height=theme.BTN_H_MD,
+                              corner_radius=theme.CORNER_BTN, font=theme.FONT_SMALL(),
+                              fg_color="transparent", border_width=theme.BORDER_WIDTH,
+                              border_color=theme.BORDER,
+                              hover_color=theme.BG_HOVER, text_color=theme.TEXT_SECONDARY,
+                              command=sonra)
+    sonra_btn.pack(side="left", padx=5)
+    if indirme is not None:
+        # İndirme bitene kadar pasif (kontrol_popups'taki pasif buton görünümü)
+        simdi_btn.configure(state="disabled", fg_color=theme.BG_ELEVATED,
+                            hover_color=theme.BG_ELEVATED, text_color=theme.TEXT_MUTED)
 
     # Pencere kapatma (X) = "Sonra"
     popup.protocol("WM_DELETE_WINDOW", sonra)
@@ -373,7 +456,160 @@ def _guncelleme_penceresi(bilgi):
     x = state.app.winfo_x() + (state.app.winfo_width() // 2) - 220
     y = state.app.winfo_y() + (state.app.winfo_height() // 2) - (height // 2)
     popup.geometry(f"440x{height}+{x}+{y}")
+    if indirme is None:
+        _log().info("Güncelleme penceresi gösterildi (v%s)", bilgi["surum"])
+        return
+    indirme.update(asama="indiriliyor", popup=popup, baslik=baslik_etiketi, ikon=ikon_etiketi,
+                   mesaj=mesaj,
+                   satir=ilerleme_satiri, cubuk=cubuk, yuzde=yuzde,
+                   simdi_btn=simdi_btn, sonra_btn=sonra_btn)
+    _log().info("Güncelleme penceresi gösterildi (indiriliyor, v%s)", bilgi["surum"])
+
+
+def _baslik_parcalari(head, baslik):
+    """_popup_basligi çerçevesindeki (ikon, başlık) etiketlerini sıra varsaymadan bulur:
+    başlık metni eşleşen etiket başlık, metinsiz ve görselli etiket ikondur."""
+    ikon = etiket = None
+    bekleyen = list(head.winfo_children())
+    while bekleyen:
+        w = bekleyen.pop()
+        if isinstance(w, ctk.CTkLabel):
+            if w.cget("text") == baslik:
+                etiket = w
+            elif not w.cget("text") and w.cget("image") is not None:
+                ikon = w
+        elif isinstance(w, ctk.CTkFrame):
+            bekleyen.extend(w.winfo_children())
+    return ikon, etiket
+
+
+def _baslik_ikonu(indirme, glif):
+    """Başlık ikonunu aşamaya göre değiştirir (ikon bulunamadıysa dokunmaz)."""
+    if indirme.get("ikon") is not None:
+        indirme["ikon"].configure(image=glif(theme.ICON_LG, theme.ACCENT))
+
+
+def _pencere_acik_mi(indirme) -> bool:
+    """İndirme penceresi hâlâ açık ve kullanılabilir mi (yalnızca ana thread)."""
+    try:
+        return indirme.get("durum") == "acik" and bool(indirme["popup"].winfo_exists())
+    except Exception:
+        return False
+
+
+def _mb(bayt) -> str:
+    return f"{bayt / (1024 * 1024):.1f}".replace(".", ",")
+
+
+def _indirme_penceresi_ac(bilgi, indirme):
+    """Ana thread: 'indiriliyor' penceresini açar. Başka modal açıksa açmaz;
+    indirme sessiz sürer ve bitince bugünkü hazır pencere akışı kullanılır."""
+    try:
+        if state.app.grab_current() is not None or state.popup_aktif:
+            indirme["durum"] = "gosterilmedi"
+            _log().info("Güncelleme penceresi şu an gösterilemedi, indirme sessiz sürüyor (v%s)",
+                        bilgi["surum"])
+            return
+        _guncelleme_penceresi(bilgi, indirme)
+        indirme["durum"] = "acik"
+    except Exception:
+        indirme["durum"] = "gosterilmedi"
+        _log().exception("Güncelleme penceresi gösterilemedi")
+        try:
+            indirme["popup"].destroy()
+        except Exception:
+            pass
+
+
+def _ilerleme_goster(indirme, indirilen, toplam):
+    """Ana thread: ilerleme çubuğunu ve etiketini günceller. Pencere kapandıysa yoksayar."""
+    try:
+        if not _pencere_acik_mi(indirme) or indirme.get("asama") != "indiriliyor":
+            return
+        cubuk, yuzde = indirme["cubuk"], indirme["yuzde"]
+        if toplam:
+            oran = min(1.0, indirilen / toplam)
+            cubuk.set(oran)
+            yuzde.configure(text=f"%{int(oran * 100)}  ({_mb(indirilen)} / {_mb(toplam)} MB)")
+        else:
+            if not indirme.get("belirsiz"):
+                indirme["belirsiz"] = True
+                cubuk.configure(mode="indeterminate")
+                cubuk.start()
+            yuzde.configure(text=f"{_mb(indirilen)} MB")
+    except Exception:
+        _log().exception("İlerleme gösterilemedi")
+
+
+def _indirme_bitti(bilgi, indirme, basarili):
+    """Ana thread: indirme sonucu. Açık pencereyi hazır/hata aşamasına geçirir,
+    kapatılmışsa kapanışta kurulumu kurar, hiç gösterilmediyse hazır pencereyi dener."""
+    try:
+        if indirme.get("durum") == "bekliyor":
+            # Pencere henüz kuruluyor (CTkToplevel kurulumda update() çağırabilir); sonra tekrar
+            state.app.after(100, lambda: _indirme_bitti(bilgi, indirme, basarili))
+            return
+        if _pencere_acik_mi(indirme):
+            if basarili:
+                _hazir_asamasina_gec(bilgi, indirme)
+            else:
+                _hata_asamasina_gec(indirme)
+            return
+        if indirme.get("durum") == "sonra":
+            if basarili:
+                _log().info("İndirme arka planda tamamlandı, kapanışta kurulacak (v%s)",
+                            bilgi["surum"])
+                _sonraya_birak(bilgi)
+            else:
+                _log().info("İndirme arka planda başarısız oldu (v%s)", bilgi["surum"])
+            return
+        if basarili:
+            _popup_goster_dene(bilgi)
+    except Exception:
+        _log().exception("İndirme sonucu işlenemedi")
+
+
+def _boyutu_yenile(popup):
+    """Aşama değişince yüksekliği içeriğe göre yeniler, konumu korur."""
+    popup.update_idletasks()
+    height = max(300, popup.winfo_reqheight())
+    popup.geometry(f"440x{height}+{popup.winfo_x()}+{popup.winfo_y()}")
+
+
+def _hazir_asamasina_gec(bilgi, indirme):
+    """Aynı pencereyi 'Güncelleme Hazır' aşamasına geçirir; butonlar bugünkü gibi çalışır."""
+    indirme["asama"] = "hazir"
+    popup, cubuk = indirme["popup"], indirme["cubuk"]
+    popup.title("Güncelleme Hazır")
+    indirme["baslik"].configure(text="Güncelleme Hazır")
+    _baslik_ikonu(indirme, icons.onay)
+    indirme["mesaj"].configure(text=HAZIR_MESAJI)
+    if indirme.get("belirsiz"):
+        cubuk.stop()
+        cubuk.configure(mode="determinate")
+    cubuk.set(1)
+    indirme["yuzde"].configure(text="%100")
+    indirme["simdi_btn"].configure(state="normal", fg_color=theme.ACCENT,
+                                   hover_color=theme.ACCENT_HOVER,
+                                   text_color=theme.TEXT_ON_ACCENT)
+    _boyutu_yenile(popup)
     _log().info("Güncelleme penceresi gösterildi (v%s)", bilgi["surum"])
+
+
+def _hata_asamasina_gec(indirme):
+    """Aynı pencerede hata mesajı; ilerleme gizlenir, tek buton 'Kapat'."""
+    indirme["asama"] = "hata"
+    popup = indirme["popup"]
+    popup.title("Güncelleme İndirilemedi")
+    indirme["baslik"].configure(text="Güncelleme İndirilemedi")
+    _baslik_ikonu(indirme, icons.uyari)
+    indirme["mesaj"].configure(text=HATA_MESAJI)
+    if indirme.get("belirsiz"):
+        indirme["cubuk"].stop()
+    indirme["satir"].pack_forget()
+    indirme["simdi_btn"].destroy()
+    indirme["sonra_btn"].configure(text="Kapat")  # sonra() hata aşamasında yalnızca kapatır
+    _boyutu_yenile(popup)
 
 # ----------------- Kurulum -----------------
 
